@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Où est Olie ?</title>
+  <style>
+    body { margin:0; padding:0; font-family:Arial; text-align:center;
+      background:url('fond.jpg') no-repeat center fixed;background-size:cover;color:#333;}
+    h1,h2,p,ul,li { color:#000; }
+    #intro,#game,#end { padding:20px; margin:20px auto; max-width:90%;
+      background:rgba(255,255,255,0.9); border-radius:10px; }
+    #canvas { border:1px solid #333; cursor:crosshair;
+      touch-action:manipulation; display:block; margin:20px auto; max-width:100%; }
+    button{ margin:10px; padding:10px 20px; font-size:1rem;
+      border:none;border-radius:5px;background:#FF69B4;color:#fff;cursor:pointer; }
+    table{margin:10px auto;border-collapse:collapse;width:80%;}
+    th,td{border:1px solid #999;padding:5px;text-align:center;}
+    .fade{animation:fade .5s ease-in-out;}
+    @keyframes fade{from{opacity:0;transform:scale(.95);}to{opacity:1;transform:1);}
+    #level-links a {
+      padding:4px 8px;
+      background:#eee;
+      border-radius:4px;
+      text-decoration:none;
+      color:#000;
+      font-size:0.9rem;
+      margin:3px;
+      display:inline-block;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="intro">
+    <h1>Où est Olie ?</h1>
+    <p>Bienvenue ! Entre ton nom :</p>
+    <input id="player-name" placeholder="Ton nom" />
+    <button id="start">Commencer</button>
+    <p>✅ 100 pts/niveau · ⚠️ −10 clic raté · ⏱️ −1 pt/sec</p>
+    <p>Ou accède directement à un niveau :</p>
+    <div id="level-links" style="display:flex; flex-wrap:wrap; justify-content:center; gap:5px;"></div>
+  </div>
+
+  <div id="game" style="display:none;">
+    <h2>Niveau <span id="level-num"></span></h2>
+    <div>Points : <span id="points">0</span> | Temps : <span id="timer">0</span>s</div>
+    <canvas id="canvas"></canvas>
+    <div id="message"></div>
+    <button id="skip">Passer le niveau</button>
+  </div>
+
+  <div id="end" style="display:none;">
+    <h2>Fin de partie</h2>
+    <p id="final-score"></p>
+    <h3>Classement</h3>
+    <table><thead><tr><th>Nom</th><th>Score</th></tr></thead><tbody id="leaderboard"></tbody></table>
+    <button id="restart">Rejouer</button>
+  </div>
+
+  <audio id="sound-correct" src="correct.mp3" preload="auto"></audio>
+  <audio id="sound-wrong" src="wrong.mp3" preload="auto"></audio>
+
+  <script>
+    document.addEventListener('touchstart', e => { if(e.touches.length>1) e.preventDefault(); }, {passive:false});
+    document.addEventListener('gesturestart', e => e.preventDefault(), {passive:false});
+
+    const levels = [
+      {src:'level1.jpg', x:651, y:1140}, {src:'level2.jpg', x:693, y:1131},
+      {src:'level3.jpg', x:273, y:930}, {src:'level4.jpg', x:870, y:1365},
+      {src:'level5.jpg', x:1808, y:2992}, {src:'level6.jpg', x:1960, y:2752},
+      {src:'level7.jpg', x:3762, y:1782}, {src:'level8.jpg', x:2497, y:1463},
+      {src:'level9.jpg', x:1617, y:1743.5}, {src:'level10.jpg', x:3201, y:1870},
+      {src:'level11.jpg', x:1705, y:2640}, {src:'level12.jpg', x:2035, y:1815},
+      {src:'level13.jpg', x:2156, y:1980}, {src:'level14.jpg', x:2299, y:1419},
+      {src:'level15.jpg', x:3091, y:1270.5}, {src:'level16.jpg', x:2882, y:1430},
+      {src:'level17.jpg', x:2123, y:2464}, {src:'level18.jpg', x:2871, y:2337.5},
+      {src:'level19.jpg', x:2887.5, y:1875.5}, {src:'level20.jpg', x:2576, y:2832},
+      {src:'level21.jpg', x:2777.5, y:1697.5}
+    ];
+
+    const POINTS_BASE=100, PENALTY_TIMEOUT=1, PENALTY_WRONG=10;
+    let current=0, score=0, startTime=0, player='', timerInterval;
+
+    const intro = document.getElementById('intro'),
+          game = document.getElementById('game'),
+          end = document.getElementById('end'),
+          canvas = document.getElementById('canvas'),
+          ctx = canvas.getContext('2d'),
+          pname = document.getElementById('player-name'),
+          btnStart = document.getElementById('start'),
+          btnSkip = document.getElementById('skip'),
+          btnRestart = document.getElementById('restart'),
+          levelNum = document.getElementById('level-num'),
+          ptsEl = document.getElementById('points'),
+          timerEl = document.getElementById('timer'),
+          finalScore = document.getElementById('final-score'),
+          lb = document.getElementById('leaderboard'),
+          soundCorrect = document.getElementById('sound-correct'),
+          soundWrong = document.getElementById('sound-wrong');
+
+    function getMousePos(e) {
+      const r = canvas.getBoundingClientRect();
+      return {
+        x: (e.clientX - r.left) * (canvas.width / r.width),
+        y: (e.clientY - r.top) * (canvas.height / r.height)
+      };
+    }
+
+    canvas.addEventListener('click', e => {
+      const p = getMousePos(e), lvl = levels[current];
+      const elapsed = Math.floor((Date.now() - startTime)/1000),
+            dist = Math.hypot(p.x - lvl.x, p.y - lvl.y);
+      if (dist <= 40) {
+        score += Math.max(0, POINTS_BASE - elapsed * PENALTY_TIMEOUT);
+        ptsEl.textContent = score;
+        ctx.strokeStyle = 'lime';
+        ctx.beginPath(); ctx.arc(lvl.x, lvl.y, 40, 0, 2*Math.PI); ctx.stroke();
+        soundCorrect.play(); clearInterval(timerInterval);
+        setTimeout(nextLevel, 600);
+      } else {
+        score = Math.max(0, score - PENALTY_WRONG);
+        ptsEl.textContent = score;
+        ctx.strokeStyle = 'red';
+        ctx.beginPath(); ctx.arc(p.x, p.y, 15, 0, 2*Math.PI); ctx.stroke();
+        soundWrong.play();
+      }
+    });
+
+    function loadLevel() {
+      const lvl = levels[current];
+      const img = new Image();
+      img.onload = () => {
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        ctx.drawImage(img, 0, 0);
+        canvas.classList.add('fade');
+        setTimeout(() => canvas.classList.remove('fade'), 500);
+        levelNum.textContent = current + 1;
+        ptsEl.textContent = score;
+        startTime = Date.now();
+        timerEl.textContent = '0';
+        clearInterval(timerInterval);
+        timerInterval = setInterval(() => {
+          timerEl.textContent = Math.floor((Date.now() - startTime)/1000);
+        }, 500);
+      };
+      img.onerror = () => console.error(`Erreur chargement ${lvl.src}`);
+      img.src = lvl.src;
+    }
+
+    function nextLevel() {
+      current++;
+      if (current < levels.length) loadLevel();
+      else endGame();
+    }
+
+    function startGame() {
+      player = pname.value.trim() || 'Invité';
+      intro.style.display = 'none';
+      end.style.display = 'none';
+      game.style.display = 'block';
+      current = 0; score = 0;
+      ptsEl.textContent = score;
+      loadLevel();
+    }
+
+    function skipLevel() {
+      clearInterval(timerInterval);
+      current++;
+      if (current < levels.length) loadLevel();
+      else endGame();
+    }
+
+    function endGame() {
+      clearInterval(timerInterval);
+      game.style.display = 'none';
+      end.style.display = 'block';
+      finalScore.textContent = `${player}, ton score : ${score} pts`;
+      const list = JSON.parse(localStorage.getItem('scores')||'[]');
+      list.push({name:player, sc:score});
+      list.sort((a,b)=>b.sc - a.sc);
+      localStorage.setItem('scores', JSON.stringify(list.slice(0,10)));
+
+      lb.innerHTML = '';
+      JSON.parse(localStorage.getItem('scores')).forEach(o => {
+        lb.innerHTML += `<tr><td>${o.name}</td><td>${o.sc}</td></tr>`;
+      });
+    }
+
+    btnStart.addEventListener('click', startGame);
+    btnSkip.addEventListener('click', skipLevel);
+    btnRestart.addEventListener('click', startGame);
+
+    // Lien direct vers chaque niveau depuis l’accueil
+    const levelLinks = document.getElementById('level-links');
+    levels.forEach((_, i) => {
+      const a = document.createElement('a');
+      a.href = '#';
+      a.textContent = `Niveau ${i + 1}`;
+      a.addEventListener('click', e => {
+        e.preventDefault();
+        player = pname.value.trim() || 'Invité';
+        intro.style.display = 'none';
+        end.style.display = 'none';
+        game.style.display = 'block';
+        current = i;
+        score = 0;
+        ptsEl.textContent = score;
+        loadLevel();
+      });
+      levelLinks.appendChild(a);
+    });
+  </script>
+</body>
+</html>
